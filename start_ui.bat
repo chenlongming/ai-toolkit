@@ -1,0 +1,1 @@
+.\venv\Scripts\python.exe flux_train_ui.py

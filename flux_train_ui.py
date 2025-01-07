@@ -154,6 +154,7 @@ def start_training(
     sample_3,
     use_more_advanced_options,
     more_advanced_options,
+    model_path,
 ):
     push_to_hub = True
     if not lora_name:
@@ -222,6 +223,10 @@ def start_training(
     random_config_name = str(uuid.uuid4())
     os.makedirs("tmp", exist_ok=True)
     config_path = f"tmp/{random_config_name}-{slugged_lora_name}.yaml"
+    
+    if model_path:
+        config["config"]["process"][0]["model"]["name_or_path"] = model_path
+        
     with open(config_path, "w") as f:
         yaml.dump(config, f)
     
@@ -241,22 +246,29 @@ network:
   linear: 16 #it will overcome the 'rank' parameter
   linear_alpha: 16 #you can have an alpha different than the ranking if you'd like
   type: lora
+#   network_kwargs:
+#     only_if_contains:
+#       - "transformer.single_transformer_blocks.0."
+#       - "transformer.single_transformer_blocks.1."
+#       - "transformer.single_transformer_blocks.2."
+#       - "transformer.single_transformer_blocks.3."
+#       - "transformer.single_transformer_blocks.4."
 sample:
   guidance_scale: 3.5
   height: 1024
   neg: '' #doesn't work for FLUX
-  sample_every: 1000
-  sample_steps: 28
+  sample_every: 100
+  sample_steps: 20
   sampler: flowmatch
   seed: 42
-  walk_seed: true
+  walk_seed: false
   width: 1024
 save:
-  dtype: float16
+  dtype: bf16
   hf_private: true
   max_step_saves_to_keep: 4
-  push_to_hub: true
-  save_every: 10000
+  push_to_hub: false
+  save_every: 1000
 train:
   batch_size: 1
   dtype: bf16
@@ -343,14 +355,14 @@ with gr.Blocks(theme=theme, css=css) as demo:
                             output_components.append(locals()[f"caption_{i}"])
                             caption_list.append(locals()[f"caption_{i}"])
 
-        with gr.Accordion("Advanced options", open=False):
+        with gr.Accordion("Advanced options", open=True):
             steps = gr.Number(label="Steps", value=1000, minimum=1, maximum=10000, step=1)
             lr = gr.Number(label="Learning Rate", value=4e-4, minimum=1e-6, maximum=1e-3, step=1e-6)
             rank = gr.Number(label="LoRA Rank", value=16, minimum=4, maximum=128, step=4)
             model_to_train = gr.Radio(["dev", "schnell"], value="dev", label="Model to train")
             low_vram = gr.Checkbox(label="Low VRAM", value=True)
             with gr.Accordion("Even more advanced options", open=False):
-                use_more_advanced_options = gr.Checkbox(label="Use more advanced options", value=False)
+                use_more_advanced_options = gr.Checkbox(label="Use more advanced options", value=True)
                 more_advanced_options = gr.Code(config_yaml, language="yaml")
 
         with gr.Accordion("Sample prompts (optional)", visible=False) as sample:
@@ -365,11 +377,12 @@ with gr.Blocks(theme=theme, css=css) as demo:
         output_components.append(sample_1)
         output_components.append(sample_2)
         output_components.append(sample_3)
-        start = gr.Button("Start training", visible=False)
+        start = gr.Button("Start training!!!", visible=False)
         output_components.append(start)
         progress_area = gr.Markdown("")
 
     dataset_folder = gr.State()
+    model_path = gr.Textbox(value='C:\\ai-toolkit-n\\FLUX.1-dev', label='model name or path', placeholder='model name or path')
 
     images.upload(
         load_captioning,
@@ -403,7 +416,8 @@ with gr.Blocks(theme=theme, css=css) as demo:
             sample_2,
             sample_3,
             use_more_advanced_options,
-            more_advanced_options
+            more_advanced_options,
+            model_path
         ],
         outputs=progress_area,
     )
@@ -411,4 +425,4 @@ with gr.Blocks(theme=theme, css=css) as demo:
     do_captioning.click(fn=run_captioning, inputs=[images, concept_sentence] + caption_list, outputs=caption_list)
 
 if __name__ == "__main__":
-    demo.launch(share=True, show_error=True)
+    demo.launch(share=False, show_error=True, inbrowser=True)
