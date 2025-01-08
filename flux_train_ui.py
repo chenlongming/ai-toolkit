@@ -28,7 +28,6 @@ import traceback
 
 gr.set_static_paths(paths=[output_path, datasets_path])
 
-
 sys.path.insert(0, "ai-toolkit")
 from toolkit.job import get_job
 
@@ -298,6 +297,7 @@ def start_training(
     except Exception as ex:
         err = traceback.format_exc()
         notify_email('训练失败', 'Lora: "{}" 训练发生异常:\n{}'.format(lora_name, err))
+        raise ex
 
     notify_email('Lora 训练完成', 'Lora: "{}" 训练完成, 回到训练界面下载'.format(lora_name))
     return f"Training completed successfully. Model saved as {slugged_lora_name}"
