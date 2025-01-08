@@ -1,6 +1,12 @@
 import os
-from huggingface_hub import whoami    
+from huggingface_hub import whoami
 os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
+output_path = 'output' if 'TRAIN_OUTPUT_PATH' not in os.environ else os.environ['TRAIN_OUTPUT_PATH']
+datasets_path = 'datasets' if 'TRAIN_DATASETS_PATH' not in os.environ else os.environ['TRAIN_DATASETS_PATH']
+
+print('training folder:', output_path)
+print('datasets folder:', datasets_path)
+
 import sys
 
 # Add the current working directory to the Python path
@@ -16,11 +22,63 @@ import json
 import yaml
 from slugify import slugify
 from transformers import AutoProcessor, AutoModelForCausalLM
+from toolkit.notify import send_mail
+from glob import glob
+import traceback
+
+gr.set_static_paths(paths=[output_path, datasets_path])
+
 
 sys.path.insert(0, "ai-toolkit")
 from toolkit.job import get_job
 
 MAX_IMAGES = 150
+
+
+def load_email():
+    if not os.path.exists('email.yaml'):
+        return None
+    
+    with open('email.yaml', 'r') as f:
+        e = yaml.safe_load(f)
+    
+    return e
+
+
+def save_email(host: str, port: int, user: str, pwd: str, sender: str, receiver: str):
+    with open('email.yaml', 'w') as f:
+        yaml.dump({
+            'smtp_host': host,
+            'smtp_port': port,
+            'smtp_user': user,
+            'smtp_pass': pwd,
+            'sender': sender,
+            'receiver': receiver
+        }, f)
+    
+    gr.Info('已保存')
+
+
+def notify_email(title: str, content: str):
+    args = load_email()
+    if args is None:
+        return
+
+    receivers = args['receiver'].split(',')
+    for receiver_ in receivers:
+        args_ = dict.copy(args)
+        args_['receiver'] = receiver_
+        send_mail(title=title, content=content, **args_)
+
+def send_test_email():
+    args = load_email()
+    if args is None:
+        gr.Warning('未配置通知邮件')
+        return None
+
+    notify_email(title='测试邮件', content='如果你看到这条消息，则说明配置的通知邮件有效')
+    gr.Info('测试邮件已发送')
+
 
 def load_captioning(uploaded_files, concept_sentence):
     uploaded_images = [file for file in uploaded_files if not file.endswith('.txt')]
@@ -77,7 +135,7 @@ def hide_captioning():
 def create_dataset(*inputs):
     print("Creating dataset")
     images = inputs[0]
-    destination_folder = str(f"datasets/{uuid.uuid4()}")
+    destination_folder = os.path.join(datasets_path, uuid.uuid4().hex)
     if not os.path.exists(destination_folder):
         os.makedirs(destination_folder)
 
@@ -186,6 +244,8 @@ def start_training(
     config["config"]["process"][0]["network"]["linear_alpha"] = int(rank)
     config["config"]["process"][0]["datasets"][0]["folder_path"] = dataset_folder
     config["config"]["process"][0]["save"]["push_to_hub"] = push_to_hub
+    config['config']['process'][0]['training_folder'] = output_path
+
     if(push_to_hub):
         try:
             username = whoami()["name"]
@@ -229,15 +289,21 @@ def start_training(
         
     with open(config_path, "w") as f:
         yaml.dump(config, f)
-    
-    # run the job locally
-    job = get_job(config_path)
-    job.run()
-    job.cleanup()
 
+    try:
+        # run the job locally
+        job = get_job(config_path)
+        job.run()
+        job.cleanup()
+    except Exception as ex:
+        err = traceback.format_exc()
+        notify_email('训练失败', 'Lora: "{}" 训练发生异常:\n{}'.format(lora_name, err))
+
+    notify_email('Lora 训练完成', 'Lora: "{}" 训练完成, 回到训练界面下载'.format(lora_name))
     return f"Training completed successfully. Model saved as {slugged_lora_name}"
 
 config_yaml = '''
+save_optimizer: off # set 'on' if you want to save the optimizer
 device: cuda:0
 model:
   is_flux: true
@@ -295,7 +361,7 @@ h3{margin-top: 0}
 .tabitem{border: 0px}
 .group_padding{padding: .55em}
 """
-with gr.Blocks(theme=theme, css=css) as demo:
+with gr.Blocks(theme=theme, css=css) as train_bk:
     gr.Markdown(
         """# LoRA Ease for FLUX 🧞‍♂️
 ### Train a high quality FLUX LoRA in a breeze ༄ using [Ostris' AI Toolkit](https://github.com/ostris/ai-toolkit)"""
@@ -361,7 +427,7 @@ with gr.Blocks(theme=theme, css=css) as demo:
             rank = gr.Number(label="LoRA Rank", value=16, minimum=4, maximum=128, step=4)
             model_to_train = gr.Radio(["dev", "schnell"], value="dev", label="Model to train")
             low_vram = gr.Checkbox(label="Low VRAM", value=True)
-            with gr.Accordion("Even more advanced options", open=False):
+            with gr.Accordion("Even more advanced options", open=True):
                 use_more_advanced_options = gr.Checkbox(label="Use more advanced options", value=True)
                 more_advanced_options = gr.Code(config_yaml, language="yaml")
 
@@ -379,11 +445,13 @@ with gr.Blocks(theme=theme, css=css) as demo:
         output_components.append(sample_3)
         start = gr.Button("Start training!!!", visible=False)
         output_components.append(start)
+
+        train_model = os.environ['TRAIN_MODEL'] if 'TRAIN_MODEL' in os.environ else ''
+        model_path = gr.Textbox(value=train_model, label='model name or path', placeholder='model name or path')
         progress_area = gr.Markdown("")
 
     dataset_folder = gr.State()
-    model_path = gr.Textbox(value='C:\\ai-toolkit-n\\FLUX.1-dev', label='model name or path', placeholder='model name or path')
-
+    
     images.upload(
         load_captioning,
         inputs=[images, concept_sentence],
@@ -417,12 +485,89 @@ with gr.Blocks(theme=theme, css=css) as demo:
             sample_3,
             use_more_advanced_options,
             more_advanced_options,
-            model_path
+            model_path,
         ],
         outputs=progress_area,
     )
 
     do_captioning.click(fn=run_captioning, inputs=[images, concept_sentence] + caption_list, outputs=caption_list)
 
+with gr.Blocks(theme=theme, css=css) as email_bk:
+    with gr.Accordion("通知邮件设置", open=True):
+        email_config = load_email()
+        smtp_host = gr.Textbox('', label='SMTP HOST:')
+        smtp_port = gr.Textbox('', label='SMTP PORT:')
+        smtp_user = gr.Textbox('', label='SMTP USER:')
+        smtp_pass = gr.Textbox('', label='SMTP PASSWORD:')
+        sender = gr.Textbox('', label='发件人:')
+        receiver = gr.Textbox(label="通知邮箱")
+
+        if email_config:
+            smtp_host.value = email_config['smtp_host']
+            smtp_port.value = email_config['smtp_port']
+            smtp_user.value = email_config['smtp_user']
+            smtp_pass.value = email_config['smtp_pass']
+            sender.value = email_config['sender']
+            receiver.value = email_config['receiver']
+
+        with gr.Row():
+            check_email_btn = gr.Button("发送测试邮件")
+            save_notify_btn = gr.Button("保存设置")
+            check_email_btn.click(send_test_email)
+            save_notify_btn.click(
+                save_email,
+                inputs=[
+                    smtp_host,
+                    smtp_port,
+                    smtp_user,
+                    smtp_pass,
+                    sender,
+                    receiver
+                ],
+                outputs=[check_email_btn]
+            )
+
+
+with gr.Blocks(theme=theme, css=css) as download_bk:
+    def refresh_lora_list():
+        choices = [str(i) for i in glob(f'{output_path}/**/*.safetensors')]
+        return gr.Dropdown(choices, label='Loras')
+
+    def select_lora(lora: str):
+        if not lora:
+            return gr.DownloadButton(label='Download Lora', visible=False)
+        return gr.DownloadButton(label='Download Lora', value=lora, visible=True)
+    
+
+    def clear_files():
+        for lora_dir in glob(f'{output_path}/*'):
+            shutil.rmtree(lora_dir)
+
+        for cnf in glob('tmp/*.yaml'):
+            os.remove(cnf)
+
+        for data_dir in glob(f'{datasets_path}/*'):
+            shutil.rmtree(data_dir)
+
+        gr.Info('clear success')
+
+        return [refresh_lora_list(), select_lora('')]
+
+    lora_list = refresh_lora_list()
+    with gr.Row():
+        loras_refresh_btn = gr.Button('Refresh')
+        dl_btn = select_lora(lora_list.value)
+
+    clear_btn = gr.Button('Clear')
+    loras_refresh_btn.click(fn=refresh_lora_list, inputs=[], outputs=[lora_list])
+    lora_list.change(fn=select_lora, inputs=[lora_list], outputs=dl_btn)
+    clear_btn.click(fn=clear_files, outputs=[lora_list, dl_btn])
+
+demo = gr.TabbedInterface([train_bk, email_bk, download_bk], ['Train', 'Email Settings', 'Lora Download'])
 if __name__ == "__main__":
-    demo.launch(share=False, show_error=True, inbrowser=True, server_port=6006)
+    demo.queue().launch(
+        share=False,
+        show_error=True,
+        inbrowser=True,
+        server_port=6006,
+    )

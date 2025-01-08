@@ -1,5 +1,10 @@
-## 用于 AutoDL 的 ai-toolkit
+# 用于 AutoDL 的 ai-toolkit
 
+## flux_train_ui.py 环境变量
+
+`TRAIN_MODEL`: flux 模型目录
+`TRAIN_OUTPUT_PATH`: lora 保存目录
+`TRAIN_DATASETS_PATH`: 数据保存目录
 
 Linux:
 ```bash
@@ -370,73 +375,3 @@ as you want. It is a good example of how to make an extension, but is also a pre
 mergers can only do one model at a time and this one will take as many as you want to feed it. There is an 
 example config file in there, just copy that to your `config` folder and rename it to `whatever_you_want.yml`.
 and use it like any other config file.
-
-## WIP Tools
-
-
-### VAE (Variational Auto Encoder) Trainer
-
-This works, but is not ready for others to use and therefore does not have an example config. 
-I am still working on it. I will update this when it is ready.
-I am adding a lot of features for criteria that I have used in my image enlargement work. A Critic (discriminator),
-content loss, style loss, and a few more. If you don't know, the VAE
-for stable diffusion (yes even the MSE one, and SDXL), are horrible at smaller faces and it holds SD back. I will fix this.
-I'll post more about this later with better examples later, but here is a quick test of a run through with various VAEs.
-Just went in and out. It is much worse on smaller faces than shown here.
-
-<img src="https://raw.githubusercontent.com/ostris/ai-toolkit/main/assets/VAE_test1.jpg" width="768" height="auto"> 
-
----
-
-## TODO
-- [X] Add proper regs on sliders
-- [X] Add SDXL support (base model only for now)
-- [ ] Add plain erasing
-- [ ] Make Textual inversion network trainer (network that spits out TI embeddings)
-
----
-
-## Change Log
-
-#### 2023-08-05
- - Huge memory rework and slider rework. Slider training is better thant ever with no more
-ram spikes. I also made it so all 4 parts of the slider algorythm run in one batch so they share gradient
-accumulation. This makes it much faster and more stable. 
- - Updated the example config to be something more practical and more updated to current methods. It is now
-a detail slide and shows how to train one without a subject. 512x512 slider training for 1.5 should work on 
-6GB gpu now. Will test soon to verify. 
-
-
-#### 2021-10-20
- - Windows support bug fixes
- - Extensions! Added functionality to make and share custom extensions for training, merging, whatever.
-check out the example in the `extensions` folder. Read more about that above.
- - Model Merging, provided via the example extension.
-
-#### 2023-08-03
-Another big refactor to make SD more modular.
-
-Made batch image generation script
-
-#### 2023-08-01
-Major changes and update. New LoRA rescale tool, look above for details. Added better metadata so
-Automatic1111 knows what the base model is. Added some experiments and a ton of updates. This thing is still unstable
-at the moment, so hopefully there are not breaking changes. 
-
-Unfortunately, I am too lazy to write a proper changelog with all the changes.
-
-I added SDXL training to sliders... but.. it does not work properly. 
-The slider training relies on a model's ability to understand that an unconditional (negative prompt)
-means you do not want that concept in the output. SDXL does not understand this for whatever reason, 
-which makes separating out
-concepts within the model hard. I am sure the community will find a way to fix this 
-over time, but for now, it is not 
-going to work properly. And if any of you are thinking "Could we maybe fix it by adding 1 or 2 more text
-encoders to the model as well as a few more entirely separate diffusion networks?" No. God no. It just needs a little
-training without every experimental new paper added to it. The KISS principal. 
-
-
-#### 2023-07-30
-Added "anchors" to the slider trainer. This allows you to set a prompt that will be used as a 
-regularizer. You can set the network multiplier to force spread consistency at high weights
-

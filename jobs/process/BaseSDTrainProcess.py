@@ -587,8 +587,9 @@ class BaseSDTrainProcess(BaseTrainProcess):
                 json.dump(json_data, f, indent=4)
 
         # save optimizer
-        if self.optimizer is not None:
+        if self.config['save_optimizer'] and self.config['save_optimizer'] != 'off' and self.optimizer is not None:
             try:
+                self.print('saving optimizer')
                 filename = f'optimizer.pt'
                 file_path = os.path.join(self.save_root, filename)
                 state_dict = self.optimizer.state_dict()
